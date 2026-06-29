@@ -1,0 +1,39 @@
+#!/bin/bash
+
+OPP_RUN="opp_run -l /home/veins/my_workspace/test_workspace/simulte/src/lte \
+-l /home/veins/my_workspace/test_workspace/veins_inet/src/veins_inet \
+-l /home/veins/my_workspace/test_workspace/veins/src/veins \
+-l /home/veins/my_workspace/test_workspace/inet/src/INET \
+-n \"/home/veins/my_workspace/test_workspace/simulte/src:/home/veins/my_workspace/test_workspace/simulte/simulations:/home/veins/my_workspace/test_workspace/inet/src:/home/veins/my_workspace/test_workspace/veins_inet/src/veins_inet:/home/veins/my_workspace/test_workspace/veins/src/veins:/home/veins/my_workspace/test_workspace/simulte/simulations/cars\" \
+-u Cmdenv"
+
+SCENARIOS=("Penetration75")
+
+mkdir -p results
+
+for SCENARIO in "${SCENARIOS[@]}"; do
+    echo "============================================"
+    echo ">>> Senaryo basliyor: $SCENARIO"
+    echo "============================================"
+
+    pkill -f sumo 2>/dev/null
+    sleep 2
+
+    # tripinfo çıktısını bu senaryoya özel yap
+    sed -i "s|<tripinfo-output value=\".*\"/>|<tripinfo-output value=\"/home/veins/my_workspace/test_workspace/simulte/simulations/cars/results/tripinfo_${SCENARIO}.xml\"/>|" istanbul-v1.sumo.cfg
+
+    eval "$OPP_RUN -c $SCENARIO omnetpp.ini" 2>&1 | tee "results/${SCENARIO}.log"
+
+    echo ">>> $SCENARIO tamamlandi"
+    COUNT=$(grep -c "<tripinfo " "results/tripinfo_${SCENARIO}.xml" 2>/dev/null || echo "0")
+    echo ">>> Tamamlanan arac sayisi: $COUNT"
+    echo ""
+done
+
+echo "============================================"
+echo "Tum senaryolar tamamlandi!"
+echo "============================================"
+for SCENARIO in "${SCENARIOS[@]}"; do
+    COUNT=$(grep -c "<tripinfo " "results/tripinfo_${SCENARIO}.xml" 2>/dev/null || echo "0")
+    echo "$SCENARIO: $COUNT arac"
+done

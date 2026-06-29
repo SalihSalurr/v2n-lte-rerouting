@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+    <copy file="lust.net.xml" />
+    <copy file="lust_peak.rou.xml" />
+    <copy file="lust.sumo.cfg" type="config" />
+</launch>

@@ -1,0 +1,3 @@
+#!/bin/bash
+pkill -f sumo 2>/dev/null; sleep 2
+opp_run -l /home/veins/my_workspace/test_workspace/simulte/src/lte -l /home/veins/my_workspace/test_workspace/veins_inet/src/veins_inet -l /home/veins/my_workspace/test_workspace/veins/src/veins -l /home/veins/my_workspace/test_workspace/inet/src/INET -n "/home/veins/my_workspace/test_workspace/simulte/src:/home/veins/my_workspace/test_workspace/simulte/simulations:/home/veins/my_workspace/test_workspace/inet/src:/home/veins/my_workspace/test_workspace/veins_inet/src/veins_inet:/home/veins/my_workspace/test_workspace/veins/src/veins:/home/veins/my_workspace/test_workspace/simulte/simulations/cars" -u Cmdenv -c Baseline omnetpp.ini 2>&1 | tee test_baseline.log

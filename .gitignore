@@ -1,0 +1,69 @@
+
+# Build artifacts (3.1GB+)
+
+**/out/
+
+
+
+# Simulation results (regenerated per run)
+
+**/results/
+
+
+
+# Compiled objects
+
+*.o
+
+*.so
+
+*.a
+
+*.dll
+
+*.exe
+
+
+
+# Eclipse/OMNeT++ IDE metadata
+
+.metadata/
+
+.settings/
+
+.csettings/
+
+.cproject
+
+.project
+
+.oppbuildspec
+
+.oppfeaturestate
+
+
+
+# OS junk
+
+.DS_Store
+
+Thumbs.db
+
+
+
+# Editor temp files
+
+*.swp
+
+*~
+
+\#*\#
+
+
+
+# Python cache
+
+__pycache__/
+
+*.pyc
+
