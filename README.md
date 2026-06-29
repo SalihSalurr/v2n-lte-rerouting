@@ -143,15 +143,6 @@ SimuLTE lacks null checks when Veins dynamically adds vehicles at high density. 
 - P. A. Lopez et al., "Microscopic Traffic Simulation using SUMO," *IEEE Intelligent Transportation Systems Conference (ITSC)*, 2018. [SUMO](https://sumo.dlr.de)
 
 
-
-## License
-
-
-
-This repository contains modified versions of open-source simulation frameworks. Each framework retains its original license. Research modifications are provided for academic purposes.
-
-
-
 ## Author
 
 
