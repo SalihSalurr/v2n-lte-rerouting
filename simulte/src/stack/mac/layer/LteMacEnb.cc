@@ -71,9 +71,12 @@ LteCellInfo* LteMacEnb::getCellInfo()
     if (cellInfo_ != nullptr)
         return cellInfo_;
 
-    return check_and_cast<LteCellInfo*>(getParentModule()-> // Stack
+    cModule* cellInfoMod = getParentModule()-> // Stack
     getParentModule()-> // Enb
-    getSubmodule("cellInfo")); // cellInfo
+    getSubmodule("cellInfo"); // cellInfo
+    if (cellInfoMod == nullptr)
+        return nullptr;
+    return check_and_cast<LteCellInfo*>(cellInfoMod);
 }
 
 int LteMacEnb::getNumAntennas()

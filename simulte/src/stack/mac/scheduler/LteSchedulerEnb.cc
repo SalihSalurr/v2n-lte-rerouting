@@ -439,7 +439,7 @@ unsigned int LteSchedulerEnb::scheduleGrant(MacCid cid, unsigned int bytes, bool
             scheduleList_[scListId] += ((dir == DL) ? vQueueItemCounter : cwAllocatedBlocks);
 
             EV << "LteSchedulerEnb::grant CODEWORD IS NOW BUSY: GO TO NEXT CODEWORD." << endl;
-            if (allocatedCws_.at(nodeId) == MAX_CODEWORDS)
+            if (allocatedCws_.find(nodeId) != allocatedCws_.end() && allocatedCws_.at(nodeId) == MAX_CODEWORDS)
             {
                 eligible = false;
                 stop = true;

@@ -466,8 +466,12 @@ void IP2lte::triggerHandoverSource(MacNodeId ueId, MacNodeId targetEnb)
 
     hoForwarding_[ueId] = targetEnb;
 
-    if (hoManager_ == nullptr)
-        hoManager_ = check_and_cast<LteHandoverManager*>(getParentModule()->getSubmodule("handoverManager"));
+    if (hoManager_ == nullptr) {
+        cModule* hoMod = getParentModule()->getSubmodule("handoverManager");
+        if (hoMod == nullptr)
+            return;
+        hoManager_ = check_and_cast<LteHandoverManager*>(hoMod);
+    }
     hoManager_->sendHandoverCommand(ueId, targetEnb, true);
 }
 
@@ -483,8 +487,12 @@ void IP2lte::triggerHandoverTarget(MacNodeId ueId, MacNodeId sourceEnb)
 void IP2lte::sendTunneledPacketOnHandover(Packet* datagram, MacNodeId targetEnb)
 {
     EV << "IP2lte::sendTunneledPacketOnHandover - destination is handing over to eNB " << targetEnb << ". Forward packet via X2." << endl;
-    if (hoManager_ == nullptr)
-        hoManager_ = check_and_cast<LteHandoverManager*>(getParentModule()->getSubmodule("handoverManager"));
+    if (hoManager_ == nullptr) {
+        cModule* hoMod = getParentModule()->getSubmodule("handoverManager");
+        if (hoMod == nullptr)
+            return;
+        hoManager_ = check_and_cast<LteHandoverManager*>(hoMod);
+    }
     hoManager_->forwardDataToTargetEnb(datagram, targetEnb);
 }
 
@@ -514,8 +522,12 @@ void IP2lte::signalHandoverCompleteTarget(MacNodeId ueId, MacNodeId sourceEnb)
     Enter_Method("signalHandoverCompleteTarget");
 
     // signal the event to the source eNB
-    if (hoManager_ == nullptr)
-        hoManager_ = check_and_cast<LteHandoverManager*>(getParentModule()->getSubmodule("handoverManager"));
+    if (hoManager_ == nullptr) {
+        cModule* hoMod = getParentModule()->getSubmodule("handoverManager");
+        if (hoMod == nullptr)
+            return;
+        hoManager_ = check_and_cast<LteHandoverManager*>(hoMod);
+    }
     hoManager_->sendHandoverCommand(ueId, sourceEnb, false);
 
     // TODO start a timer (there may be in-flight packets)
