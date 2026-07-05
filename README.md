@@ -60,6 +60,14 @@ SimuLTE lacks null checks when Veins dynamically adds vehicles at high density. 
 - **`simulte/simulations/cars/lust_peak.rou.xml`** — LuST peak-hour vehicle routes (07:00–09:00, ~40k vehicles), derived from the [LuST Scenario](https://github.com/lcodeca/LuSTScenario) by Codecà et al.
 - **`simulte/simulations/cars/setup_full.sh`** — One-command deployment script
 
+### Additional AMC/Scheduler Crash Fixes (found via GDB backtrace analysis)
+
+Discovered while stress-testing Pen30/45/60 scenarios under GDB (`catch throw`) after initial fixes proved insufficient. Root cause: `LteAmc` node-index maps (`dlNodeIndex_`, `ulNodeIndex_`, `d2dNodeIndex_`) and lookup tables can be accessed with a `nodeId`/CQI/MCS value before that UE is fully registered, especially under high penetration rate with many simultaneous LTE attachments.
+
+- **`simulte/src/stack/mac/amc/LteAmc.cc`** — `existTxParams()`, `getFeedback()`, `setTxParams()` now check node-index map membership via `find()` before `.at()` access; return safe defaults (`false`, empty feedback, unchanged `info`) instead of throwing `std::out_of_range`
+- **`simulte/src/stack/mac/amc/LteAmc.cc`** — `getItbsPerCqi()` clamps out-of-range `cqi` values to the valid table bound (0–15) before indexing `cqiTable[]`, preventing a segfault from unchecked array access
+- **`simulte/src/stack/mac/amc/LteMcs.cc`** — `itbs2tbs()` falls back to `_QPSK` when passed an invalid `LteMod` value instead of throwing `cRuntimeError`, and returns `nullptr` safely from the (now unreachable but retained) default branches
+
 ## Prerequisites
 
 - [Veins VM](https://veins.car2x.org) (Debian-based, includes OMNeT++ 5.x, SUMO, and Veins 5.x)
@@ -77,4 +85,3 @@ SimuLTE lacks null checks when Veins dynamically adds vehicles at high density. 
 ## Author
 
 Salih Salur — [GitHub](https://github.com/SalihSalurr)
-

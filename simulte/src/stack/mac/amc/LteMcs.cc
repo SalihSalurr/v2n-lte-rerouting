@@ -253,6 +253,7 @@ const unsigned int itbs2tbs_64qam8[][110] =
 
 const unsigned int* itbs2tbs(LteMod mod, TxMode txMode, unsigned char layers, unsigned char itbs)
 {
+    if (mod != _QPSK && mod != _16QAM && mod != _64QAM) mod = _QPSK; // safety: invalid MCS fallback
     const unsigned int* res = nullptr;
 
     if (layers == 1 || (txMode != OL_SPATIAL_MULTIPLEXING && txMode != CL_SPATIAL_MULTIPLEXING))
@@ -269,7 +270,7 @@ const unsigned int* itbs2tbs(LteMod mod, TxMode txMode, unsigned char layers, un
                 res = itbs2tbs_64qam_1[itbs];
                 break;
             default:
-                throw cRuntimeError("Unknown MCS (%d) in LteAmc::itbs2tbs()", mod);
+                { EV << "itbs2tbs(): Unknown MCS (" << mod << "), returning nullptr" << endl; return nullptr; }
         }
     }
 
@@ -288,7 +289,7 @@ const unsigned int* itbs2tbs(LteMod mod, TxMode txMode, unsigned char layers, un
                 res = itbs2tbs_64qam_2[itbs];
                 break;
             default:
-                throw cRuntimeError("Unknown MCS (%d) in LteAmc::itbs2tbs()", mod);
+                { EV << "itbs2tbs(): Unknown MCS (" << mod << "), returning nullptr" << endl; return nullptr; }
         }
     }
     else if (layers == 4)
@@ -305,7 +306,7 @@ const unsigned int* itbs2tbs(LteMod mod, TxMode txMode, unsigned char layers, un
                 res = itbs2tbs_64qam_4[itbs];
                 break;
             default:
-                throw cRuntimeError("Unknown MCS (%d) in LteAmc::itbs2tbs()", mod);
+                { EV << "itbs2tbs(): Unknown MCS (" << mod << "), returning nullptr" << endl; return nullptr; }
                 res = nullptr;
         }
     } else {

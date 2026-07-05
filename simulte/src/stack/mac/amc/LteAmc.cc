@@ -461,10 +461,16 @@ LteSummaryFeedback LteAmc::getFeedback(MacNodeId id, Remote antenna, TxMode txMo
         EV << NOW << " LteAmc::getFeedback detected " << nh << " as nexthop for " << id << "\n";
     id = nh;
 
-    if (dir == DL)
+    if (dir == DL) {
+        if (dlNodeIndex_.find(id) == dlNodeIndex_.end())
+            return LteSummaryFeedback(MAX_CODEWORDS, numBands_, 0, 0);
         return dlFeedbackHistory_.at(antenna).at(dlNodeIndex_.at(id)).at(txMode).get();
-    else if (dir == UL)
+    }
+    else if (dir == UL) {
+        if (ulNodeIndex_.find(id) == ulNodeIndex_.end())
+            return LteSummaryFeedback(MAX_CODEWORDS, numBands_, 0, 0);
         return ulFeedbackHistory_.at(antenna).at(ulNodeIndex_.at(id)).at(txMode).get();
+    }
     else
     {
         throw cRuntimeError("LteAmc::getFeedback(): Unrecognized direction");
@@ -535,12 +541,21 @@ bool LteAmc::existTxParams(MacNodeId id, const Direction dir)
         EV << NOW << " LteAmc::existTxparams detected " << nh << " as nexthop for " << id << "\n";
     id = nh;
 
-    if (dir == DL)
+    if (dir == DL) {
+        if (dlNodeIndex_.find(id) == dlNodeIndex_.end())
+            return false;
         return dlTxParams_.at(dlNodeIndex_.at(id)).isSet();
-    else if (dir == UL)
+    }
+    else if (dir == UL) {
+        if (ulNodeIndex_.find(id) == ulNodeIndex_.end())
+            return false;
         return ulTxParams_.at(ulNodeIndex_.at(id)).isSet();
-    else if (dir == D2D)
+    }
+    else if (dir == D2D) {
+        if (d2dNodeIndex_.find(id) == d2dNodeIndex_.end())
+            return false;
         return d2dTxParams_.at(d2dNodeIndex_.at(id)).isSet();
+    }
     else
     {
         throw cRuntimeError("LteAmc::existTxparams(): Unrecognized direction");
@@ -570,12 +585,21 @@ const UserTxParams& LteAmc::setTxParams(MacNodeId id, const Direction dir, UserT
     }
     EV << endl;
 
-    if (dir == DL)
+    if (dir == DL) {
+        if (dlNodeIndex_.find(id) == dlNodeIndex_.end())
+            return info;
         return (dlTxParams_.at(dlNodeIndex_.at(id)) = info);
-    else if (dir == UL)
+    }
+    else if (dir == UL) {
+        if (ulNodeIndex_.find(id) == ulNodeIndex_.end())
+            return info;
         return (ulTxParams_.at(ulNodeIndex_.at(id)) = info);
-    else if (dir == D2D)
+    }
+    else if (dir == D2D) {
+        if (d2dNodeIndex_.find(id) == d2dNodeIndex_.end())
+            return info;
         return (d2dTxParams_.at(d2dNodeIndex_.at(id)) = info);
+    }
     else
     {
         throw cRuntimeError("LteAmc::setTxParams(): Unrecognized direction");
@@ -890,6 +914,7 @@ unsigned int LteAmc::getItbsPerCqi(Cqi cqi, const Direction dir)
     {
         throw cRuntimeError("LteAmc::getItbsPerCqi(): Unrecognized direction");
     }
+    if (cqi > 15) cqi = 15; // safety: clamp invalid CQI to valid range
     CQIelem entry = cqiTable[cqi];
     LteMod mod = entry.mod_;
     double rate = entry.rate_;
