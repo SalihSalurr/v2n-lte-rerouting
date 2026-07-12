@@ -85,3 +85,44 @@ Discovered while stress-testing Pen30/45/60 scenarios under GDB (`catch throw`) 
 ## Author
 
 Salih Salur — [GitHub](https://github.com/SalihSalurr)
+
+### Vehicle Lifecycle / Stale MacNodeId Crash Fixes (in progress)
+
+SimuLTE + Veins crashes when a vehicle module is deleted mid-simulation
+(vehicle leaves the SUMO map). The LTE stack scatters `MacNodeId`
+references across AMC, schedulers, and the binder, and cleanup on
+deletion is incomplete — leading to `SIGSEGV` in
+`LteAmc::computeBitsOnNRbs` or `std::out_of_range` in `LteAmc::detachUser`.
+
+**Workaround applied (6 files):**
+
+- **`veins/src/veins/modules/mobility/traci/TraCIScenarioManager.cc`** —
+  `deleteManagedModule()` no longer calls `callFinish()` / `deleteModule()`.
+  Vehicle modules are disconnected from the channel but kept alive in
+  OMNeT++, so the LTE stack never receives a "vehicle gone" event. Trades
+  memory for stability (module count grows with total vehicle churn).
+- **`simulte/src/corenetwork/binder/LteBinder.cc`** — `unregisterNode()`
+  now proactively detaches the UE from every eNB's AMC (all directions)
+  and clears scheduler queues, as a safety net independent of teardown order.
+- **`simulte/src/stack/mac/amc/LteAmc.cc`** — `detachUser()` guards
+  against UEs never attached in a given direction; `computeTxParams()`
+  returns a static invalid sentinel for stale/unregistered nodeIds, checked
+  via `isSet()` at all 5 downstream call sites (`computeReqRbs`,
+  `computeBitsOnNRbs` x2, `computeBitsOnNRbs_MB`, `readCoderate`).
+- **`simulte/src/stack/mac/amc/UserTxParams.h`** — added `const isSet()`
+  overload; `getCwModulation()` / `getCwRate()` bounds-check the CQI value
+  against `MAXCQI` before indexing `cqiTable[]`.
+- **`simulte/src/stack/mac/scheduler/LteSchedulerEnb.cc`** —
+  `scheduleGrant()` checks binder liveness for the target nodeId before
+  proceeding, acting as a single upstream chokepoint.
+- **`simulte/src/apps/TrafficApp/VehicleApp.cc`** — `sendReport()` probes
+  TraCI liveness (`getRoadId()`) and permanently disables itself
+  (`isEquipped = false`) once the vehicle is confirmed gone from SUMO.
+
+**Status:** Penetration30 reached t=937s (~12% of a 3.088e6s / ~858h
+scenario timeline — need to confirm actual `sim-time-limit`) with RAM
+usage ~2.9GB / 25GB free, before hitting an unrelated handover crash:
+This is a separate bug: during handover, `LtePhyUe::doHandover()` calls
+`getAmcModule()` which does `check_and_cast<LteMacEnb*>` on what may be
+a stale/incorrect `masterId_`, landing on a UE's MAC module instead of
+an eNB's. Root cause and fix are pending follow-up work.
