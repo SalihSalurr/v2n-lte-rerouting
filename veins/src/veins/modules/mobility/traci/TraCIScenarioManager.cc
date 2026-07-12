@@ -611,8 +611,18 @@ void TraCIScenarioManager::deleteManagedModule(std::string nodeId)
     }
 
     hosts.erase(nodeId);
-    mod->callFinish();
-    mod->deleteModule();
+    // -----------------------------------------------------------------
+    // WORKAROUND for stale-nodeId crashes in the LTE stack (SimuLTE):
+    // Deleting a vehicle module mid-simulation triggers a cleanup chain
+    // (IP2lte::finish -> binder->unregisterNode -> AMC/scheduler detach)
+    // that fails to fully purge references, leading to SIGSEGV in
+    // LteAmc::computeBitsOnNRbs. The module is already disconnected from
+    // ChannelAccess above (unregisterNic), so leaving it in place is safe:
+    // it neither sends nor receives, and the LTE stack never fires the
+    // "vehicle gone" event. Memory cost < crash cost.
+    // -----------------------------------------------------------------
+    // mod->callFinish();
+    // mod->deleteModule();
 }
 
 void TraCIScenarioManager::executeOneTimestep()

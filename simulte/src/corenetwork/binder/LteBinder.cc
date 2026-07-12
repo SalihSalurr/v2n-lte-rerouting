@@ -13,6 +13,8 @@
 
 #include "../lteCellInfo/LteCellInfo.h"
 #include "corenetwork/nodes/InternetMux.h"
+#include "stack/mac/layer/LteMacEnb.h"
+#include "stack/mac/amc/LteAmc.h"
 
 using namespace std;
 using namespace inet;
@@ -22,6 +24,35 @@ Define_Module(LteBinder);
 void LteBinder::unregisterNode(MacNodeId id)
 {
     EV << NOW << " LteBinder::unregisterNode - unregistering node " << id << endl;
+
+    // -----------------------------------------------------------------
+    // Safety net: clean up all eNB-side data structures that reference
+    // this UE. LtePhyUe::finish() also does some of this, but:
+    //   - it may not run if the module is deleted without callFinish()
+    //   - it doesn't cover the D2D direction
+    //   - it doesn't clean scheduler active-connection sets / pending RAC
+    //   - if masterId_ was stale it may target the wrong AMC
+    // Doing it here guarantees cleanup regardless of teardown order.
+    // -----------------------------------------------------------------
+    for (auto& idIter : nodeIds_) {
+        LteMacBase* mac = getMacFromMacNodeId(idIter.first);
+        if (mac == nullptr) continue;
+
+        LteMacEnb* macEnb = dynamic_cast<LteMacEnb*>(mac);
+        if (macEnb == nullptr) continue;  // UEs have no AMC/scheduler
+
+        // 1) Detach from AMC in every direction (idempotent; swallow throws)
+        LteAmc* amc = macEnb->getAmc();
+        if (amc != nullptr) {
+            try { amc->detachUser(id, UL);  } catch (const std::exception&) {}
+            try { amc->detachUser(id, DL);  } catch (const std::exception&) {}
+            try { amc->detachUser(id, D2D); } catch (const std::exception&) {}
+        }
+
+        // 2) Remove active scheduler connections and pending RAC
+        try { macEnb->deleteQueues(id); } catch (const std::exception&) {}
+    }
+
 
 
     std::map<Ipv4Address, MacNodeId>::iterator it;

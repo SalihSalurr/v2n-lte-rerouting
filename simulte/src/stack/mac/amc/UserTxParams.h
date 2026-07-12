@@ -104,6 +104,7 @@ class SIMULTE_API UserTxParams
     {
         return isValid_;
     }
+    bool isSet() const { return isValid_; }
     //! Get the transmission mode.
     const TxMode& readTxMode() const
     {
@@ -172,7 +173,11 @@ class SIMULTE_API UserTxParams
      */
     LteMod getCwModulation(Codeword cw) const
     {
-        return cqiTable[cqiVector_.at(cw)].mod_;
+        // Safety: guard against out-of-range CW / CQI
+        if (cw >= cqiVector_.size()) return _QPSK;
+        Cqi __cqi = cqiVector_.at(cw);
+        if (__cqi > MAXCQI) return _QPSK;
+        return cqiTable[__cqi].mod_;
     }
 
     /** Get the nominal code rate given the codeword. This function does not check if codeword is set.
@@ -181,7 +186,11 @@ class SIMULTE_API UserTxParams
      */
     double getCwRate(Codeword cw) const
     {
-        return cqiTable[cqiVector_.at(cw)].rate_;
+        // Safety: guard against out-of-range CW / CQI
+        if (cw >= cqiVector_.size()) return 0.0;
+        Cqi __cqi = cqiVector_.at(cw);
+        if (__cqi > MAXCQI) return 0.0;
+        return cqiTable[__cqi].rate_;
     }
 
     /** Gives the number of layers for each codeword.

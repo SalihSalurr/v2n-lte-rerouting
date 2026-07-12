@@ -608,6 +608,17 @@ const UserTxParams& LteAmc::setTxParams(MacNodeId id, const Direction dir, UserT
 
 const UserTxParams& LteAmc::computeTxParams(MacNodeId id, const Direction dir)
 {
+    // Central guard: if the UE has been unregistered (module deleted or
+    // stale MacNodeId), return a static invalid sentinel. The sentinel is
+    // default-constructed => isSet() == false, cqiVector_ has NOSIGNALCQI.
+    // All callers should check info.isSet() and return early on false.
+    static const UserTxParams invalidSentinel;
+    if (binder_->getOmnetId(id) == 0 || getSimulation()->getModule(binder_->getOmnetId(id)) == nullptr) {
+        EV << NOW << " LteAmc::computeTxParams - stale nodeId " << id
+           << ", returning invalid sentinel" << endl;
+        return invalidSentinel;
+    }
+
     // DEBUG
     EV << NOW << " LteAmc::computeTxParams --------------::[ START ]::--------------\n";
     EV << NOW << " LteAmc::computeTxParams CellId: " << cellId_ << "\n";
@@ -683,6 +694,7 @@ unsigned int LteAmc::computeReqRbs(MacNodeId id, Band b, Codeword cw, unsigned i
     // Loading TBS vectors
     const unsigned int* tbsVect;// it is a row of the itbs matrix
     UserTxParams info = computeTxParams(id, dir);
+    if (!info.isSet()) return 0;  // stale/invalid UE — nothing to compute
     unsigned char layers = info.getLayers().at(cw);
 
     LteMod mod = info.getCwModulation(cw);
@@ -718,6 +730,7 @@ unsigned int LteAmc::computeBitsOnNRbs(MacNodeId id, Band b, unsigned int blocks
 
     // Acquiring current user scheduling information
     const UserTxParams & info = computeTxParams(id, dir);
+    if (!info.isSet()) return 0;  // stale/invalid UE — nothing to compute
 
     std::vector<unsigned char> layers = info.getLayers();
 
@@ -772,6 +785,7 @@ unsigned int LteAmc::computeBitsOnNRbs(MacNodeId id, Band b, Codeword cw, unsign
 
     // Acquiring current user scheduling information
     UserTxParams info = computeTxParams(id, dir);
+    if (!info.isSet()) return 0;  // stale/invalid UE — nothing to compute
 
     // if CQI == 0 the UE is out of range, thus return 0
     if (info.readCqiVector().at(cw) == 0)
@@ -862,6 +876,7 @@ unsigned int LteAmc::computeBitsOnNRbs_MB(MacNodeId id, Band b,  unsigned int bl
 
     // Acquiring current user scheduling information
     UserTxParams info = computeTxParams(id, dir);
+    if (!info.isSet()) return 0;  // stale/invalid UE — nothing to compute
 
     std::vector<unsigned char> layers = info.getLayers();
 
@@ -995,6 +1010,7 @@ double LteAmc::readCoderate(MacNodeId id, Codeword cw, unsigned int bytes, const
 
     // Loading the user transmission parameters
     const UserTxParams& info = computeTxParams(id, dir);
+    if (!info.isSet()) return 0;  // stale/invalid UE — nothing to compute
     std::vector<unsigned char> layers = info.getLayers();
 
     // Loading TBS vectors
@@ -1295,6 +1311,18 @@ Pmi LteAmc::readWbPmi(const PmiVector& pmi)
 
 void LteAmc::detachUser(MacNodeId nodeId, Direction dir)
 {
+    // Guard: if this UE was never attached in this direction, silently return.
+    // Prevents std::out_of_range from map::at() during teardown / cleanup.
+    if (dir == DL) {
+        if (dlNodeIndex_.find(nodeId) == dlNodeIndex_.end()) return;
+    } else if (dir == UL) {
+        if (ulNodeIndex_.find(nodeId) == ulNodeIndex_.end()) return;
+    } else if (dir == D2D) {
+        if (d2dNodeIndex_.find(nodeId) == d2dNodeIndex_.end()) return;
+    } else {
+        return;
+    }
+
     EV << "##################################" << endl;
     EV << "# LteAmc::detachUser. Id: " << nodeId << ", direction: " << dirToA(dir) << endl;
     EV << "##################################" << endl;

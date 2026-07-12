@@ -179,6 +179,21 @@ void VehicleApp::tryInitStats()
 }
 void VehicleApp::sendReport()
 {
+    // -----------------------------------------------------------------
+    // Guard: has this vehicle been removed from SUMO?
+    // Since we no longer delete Veins vehicle modules on TraCI removal
+    // (workaround for SimuLTE stale-nodeId crashes), the module lives on
+    // in OMNeT++ but any TraCI query for this SUMO id throws.
+    // Do a cheap probe: if it throws, this vehicle is gone — disable.
+    // -----------------------------------------------------------------
+    try {
+        auto veh = getVehicle();
+        (void)veh.getRoadId();   // probe: throws if vehicle no longer in SUMO
+    } catch (...) {
+        isEquipped = false;      // stop future reports permanently
+        return;                  // silently skip this call
+    }
+
     tryInitStats();
     if (statsInitialized) {
         try {

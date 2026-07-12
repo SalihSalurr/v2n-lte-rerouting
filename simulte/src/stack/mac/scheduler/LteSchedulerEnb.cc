@@ -114,6 +114,23 @@ unsigned int LteSchedulerEnb::scheduleGrant(MacCid cid, unsigned int bytes, bool
     MacNodeId nodeId = MacCidToNodeId(cid);
     LogicalCid flowId = MacCidToLcid(cid);
 
+    // -----------------------------------------------------------------
+    // Guard: if the UE has been unregistered from the binder (e.g. its
+    // module was deleted mid-simulation, as happens with Veins vehicles
+    // that leave the map), abort scheduling for this CID cleanly.
+    // This is the single upstream chokepoint that prevents stale-nodeId
+    // crashes further down (AMC::computeTxParams, computeBitsOnNRbs...).
+    // -----------------------------------------------------------------
+    if (getBinder()->getOmnetId(nodeId) == 0) {
+        EV << NOW << " LteSchedulerEnb::scheduleGrant - skipping stale nodeId "
+           << nodeId << " (unregistered from binder)" << endl;
+        terminate = true;
+        active    = false;
+        eligible  = false;
+        return 0;
+    }
+
+
     Direction dir = direction_;
     if (dir == UL)
     {
