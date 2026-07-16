@@ -13,7 +13,7 @@ Define_Module(VehicleApp);
 //  ASLA KAPATILMAZ. Sadece traffic_log.txt (debug log) kapatildi.
 // ═════════════════════════════════════════════════════════════
 static const char* CSV_DIR =
-    "/home/veins/my_workspace/test_workspace/simulte/simulations/cars/results";
+    "/home/azureuser/src/simulte/simulations/cars/results";
 static std::mutex csvMutex;
 static bool       csvHeaderWritten = false;
 static std::string cachedCsvPath;
@@ -183,15 +183,25 @@ void VehicleApp::sendReport()
     // Guard: has this vehicle been removed from SUMO?
     // Since we no longer delete Veins vehicle modules on TraCI removal
     // (workaround for SimuLTE stale-nodeId crashes), the module lives on
-    // in OMNeT++ but any TraCI query for this SUMO id throws.
-    // Do a cheap probe: if it throws, this vehicle is gone — disable.
+    // in OMNeT++ but the SUMO vehicle is gone. Querying it via TraCI
+    // returns a "is not known" error whose short/garbled reply corrupts
+    // the Veins TraCIBuffer -> heap corruption after thousands of calls.
+    // Instead ask the ScenarioManager (pure C++ map lookup, NO TraCI):
+    // deleteManagedModule() erased this id from hosts, so getManagedModule
+    // returns nullptr once the vehicle has left.
     // -----------------------------------------------------------------
-    try {
-        auto veh = getVehicle();
-        (void)veh.getRoadId();   // probe: throws if vehicle no longer in SUMO
-    } catch (...) {
-        isEquipped = false;      // stop future reports permanently
-        return;                  // silently skip this call
+    if (mobility == nullptr) { isEquipped = false; return; }
+    {
+        veins::TraCIScenarioManager* mgr = mobility->getManager();
+        if (mgr == nullptr ||
+            mgr->getManagedHosts().count(mobility->getExternalId()) == 0)
+        {
+            // vehicle just left SUMO: record its stats NOW with the real
+            // arrival time (finish() will not fire due to no-delete workaround)
+            writeStatsRow();
+            isEquipped = false;   // stop all future reports
+            return;               // silently skip, never touch TraCI
+        }
     }
 
     tryInitStats();
@@ -327,6 +337,8 @@ void VehicleApp::socketDataArrived(inet::UdpSocket* sock, inet::Packet* packet)
 void VehicleApp::writeStatsRow()
 {
     if (!statsInitialized) return;
+    if (statsWritten) return;   // zaten yazildi (cift kayit engeli)
+    statsWritten = true;
     double arrivalTime = simTime().dbl();
     double duration    = arrivalTime - departTime;
     std::string vehId = getParentModule()->getFullName();

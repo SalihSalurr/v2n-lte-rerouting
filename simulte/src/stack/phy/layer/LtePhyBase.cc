@@ -186,9 +186,35 @@ LteAmc *LtePhyBase::getAmcModule(MacNodeId id)
     if (omid == 0)
         return nullptr;
 
-    amc = check_and_cast<LteMacEnb *>(
-        getSimulation()->getModule(omid)->getSubmodule("lteNic")->getSubmodule(
-            "mac"))->getAmc();
+    // --- stale/wrong-type guard (handover crash fix) ---
+    if (getNodeTypeById(id) != ENODEB)
+    {
+        EV_WARN << "LtePhyBase::getAmcModule - id " << id
+                << " is not an eNB, returning nullptr" << endl;
+        return nullptr;
+    }
+
+    cModule *mod = getSimulation()->getModule(omid);
+    if (mod == nullptr)
+        return nullptr;
+
+    cModule *nic = mod->getSubmodule("lteNic");
+    if (nic == nullptr)
+        return nullptr;
+
+    cModule *macMod = nic->getSubmodule("mac");
+    if (macMod == nullptr)
+        return nullptr;
+
+    LteMacEnb *macEnb = dynamic_cast<LteMacEnb *>(macMod);
+    if (macEnb == nullptr)
+    {
+        EV_WARN << "LtePhyBase::getAmcModule - module at id " << id
+                << " is not LteMacEnb, returning nullptr" << endl;
+        return nullptr;
+    }
+
+    amc = macEnb->getAmc();
     return amc;
 }
 

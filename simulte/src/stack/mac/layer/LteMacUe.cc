@@ -408,7 +408,14 @@ void LteMacUe::macPduMake(MacCid cid)
                 throw cRuntimeError("Unable to find mac buffer for cid %d", destCid);
 
             if (mbuf_[destCid]->isEmpty())
-                throw cRuntimeError("Empty buffer for cid %d, while expected SDUs were %d", destCid, sduPerCid);
+            {
+                // Buffer emptied under a stale/handover grant (vehicle left):
+                // send whatever is already in the PDU and stop for this cid
+                // instead of aborting the whole simulation.
+                EV_WARN << "LteMacUe: empty buffer for cid " << destCid
+                        << ", expected " << sduPerCid << " SDUs; skipping." << endl;
+                break;
+            }
 
             auto pkt = check_and_cast<Packet *>(mbuf_[destCid]->popFront());
             drop(pkt);

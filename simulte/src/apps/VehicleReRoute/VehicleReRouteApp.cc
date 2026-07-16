@@ -115,6 +115,18 @@ void VehicleReRouteApp::handleMessage(cMessage* msg)
 {
     if (msg != timerCheck) return;
 
+    // Vehicle left SUMO but module was not deleted (stale-nodeId
+    // workaround). Ask the ScenarioManager (pure C++ lookup, no TraCI):
+    // if the id is no longer managed, stop the timer loop entirely.
+    if (mobility != nullptr) {
+        veins::TraCIScenarioManager* mgr = mobility->getManager();
+        if (mgr == nullptr ||
+            mgr->getManagedHosts().count(mobility->getExternalId()) == 0)
+        {
+            return;   // do NOT reschedule: vehicle is gone
+        }
+    }
+
     if (!rerouteDone) {
         std::string currentEdge = getVehicle().getRoadId();
 

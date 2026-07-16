@@ -36,9 +36,11 @@ void DasFilter::setMasterRuSet(MacNodeId masterId)
     }
     if (getNodeTypeById(masterId) == ENODEB)
     {
-        das_ = check_and_cast<LtePhyEnb*>(module->getSubmodule("lteNic")->
-            getSubmodule("phy"))->getDasFilter();
-        ruSet_ = das_->getRemoteAntennaSet();
+        cModule* phyMod = module->getSubmodule("lteNic")->getSubmodule("phy");
+        LtePhyEnb* enbPhy = dynamic_cast<LtePhyEnb*>(phyMod);
+        if (enbPhy == nullptr) { das_=nullptr; ruSet_=nullptr; reportingSet_.clear(); return; }
+        das_ = enbPhy->getDasFilter();
+        ruSet_ = das_ ? das_->getRemoteAntennaSet() : nullptr;
     }
     else
     {
@@ -54,6 +56,9 @@ double DasFilter::receiveBroadcast(LteAirFrame* frame, UserControlInfo* lteInfo)
     EV << "DAS Filter: Received Broadcast\n";
     EV << "DAS Filter: ReportingSet now contains:\n";
     reportingSet_.clear();
+
+    if (ruSet_ == nullptr)
+        return 0;
 
     double rssiEnb = 0;
     for (unsigned int i=0; i<ruSet_->getAntennaSetSize(); i++)

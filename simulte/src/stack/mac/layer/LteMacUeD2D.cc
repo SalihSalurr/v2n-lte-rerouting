@@ -214,7 +214,8 @@ void LteMacUeD2D::macPduMake(MacCid cid)
                     throw cRuntimeError("Unable to find mac buffer for cid %d", destCid);
 
                 if (mbuf_[destCid]->isEmpty())
-                    throw cRuntimeError("Empty buffer for cid %d, while expected SDUs were %d", destCid, sduPerCid);
+                    { EV_WARN << "LteMacUeD2D: empty buffer for cid " << destCid
+                              << ", expected " << sduPerCid << "; skipping." << endl; break; }
 
                 auto pkt = check_and_cast<Packet *>(mbuf_[destCid]->popFront());
 

@@ -236,7 +236,14 @@ void LtePhyUe::handoverHandler(LteAirFrame* frame, UserControlInfo* lteInfo)
         }
         else
         {
-            // broadcast from another master with higher rssi
+            // broadcast from another source with higher rssi - verify eNB
+            if (getNodeTypeById(lteInfo->getSourceId()) != ENODEB)
+            {
+                EV_WARN << "LtePhyUe::handoverHandler - ignoring non-eNB source "
+                        << lteInfo->getSourceId() << endl;
+                delete frame;
+                return;
+            }
             candidateMasterId_ = lteInfo->getSourceId();
             candidateMasterRssi_ = rssi;
             hysteresisTh_ = updateHysteresisTh(rssi);
@@ -298,6 +305,16 @@ void LtePhyUe::triggerHandover()
 
 void LtePhyUe::doHandover()
 {
+    // --- Guard: abort if candidate is not a valid eNB ---
+    if (getNodeTypeById(candidateMasterId_) != ENODEB)
+    {
+        EV_WARN << NOW << " LtePhyUe::doHandover - candidateMasterId_ "
+                << candidateMasterId_
+                << " is not an eNB, aborting handover for UE " << nodeId_ << endl;
+        binder_->removeUeHandoverTriggered(nodeId_);
+        return;
+    }
+
     // Delete Old Buffers
     deleteOldBuffers(masterId_);
 
@@ -305,59 +322,95 @@ void LtePhyUe::doHandover()
     LteAmc *oldAmc = getAmcModule(masterId_);
     LteAmc *newAmc = getAmcModule(candidateMasterId_);
 
-    // TODO verify the amc is the relay one and remove after tests
-    assert(newAmc != nullptr);
+    if (newAmc == nullptr)
+    {
+        EV_WARN << NOW << " LtePhyUe::doHandover - cannot get AMC for candidate "
+                << candidateMasterId_ << ", aborting handover" << endl;
+        binder_->removeUeHandoverTriggered(nodeId_);
+        return;
+    }
 
-    oldAmc->detachUser(nodeId_, UL);
-    oldAmc->detachUser(nodeId_, DL);
+    if (oldAmc != nullptr)
+    {
+        oldAmc->detachUser(nodeId_, UL);
+        oldAmc->detachUser(nodeId_, DL);
+    }
     newAmc->attachUser(nodeId_, UL);
     newAmc->attachUser(nodeId_, DL);
 
     // binder calls
-        if (binder_ != nullptr)
-            binder_->unregisterNextHop(masterId_, nodeId_);
+    if (binder_ != nullptr)
+        binder_->unregisterNextHop(masterId_, nodeId_);
 
-        // cellInfo call
-        if (cellInfo_ != nullptr)
-            cellInfo_->detachUser(nodeId_);
+    // cellInfo call
+    if (cellInfo_ != nullptr)
+        cellInfo_->detachUser(nodeId_);
 
     // change masterId and notify handover to the MAC layer
     MacNodeId oldMaster = masterId_;
     masterId_ = candidateMasterId_;
-    mac_->doHandover(candidateMasterId_);  // do MAC operations for handover
+    mac_->doHandover(candidateMasterId_);
     currentMasterRssi_ = candidateMasterRssi_;
     hysteresisTh_ = updateHysteresisTh(currentMasterRssi_);
 
-    // update cellInfo
-    LteMacEnb* newMacEnb =  check_and_cast<LteMacEnb*>(getSimulation()->getModule(binder_->getOmnetId(candidateMasterId_))->getSubmodule("lteNic")->getSubmodule("mac"));
+    // update cellInfo - with dynamic_cast guard
+    OmnetId candOmnetId = binder_->getOmnetId(candidateMasterId_);
+    cModule *candMod = (candOmnetId != 0)
+        ? getSimulation()->getModule(candOmnetId) : nullptr;
+    if (candMod == nullptr)
+    {
+        EV_WARN << NOW << " LtePhyUe::doHandover - candidate module gone, "
+                << "aborting for UE " << nodeId_ << endl;
+        binder_->removeUeHandoverTriggered(nodeId_);
+        return;
+    }
+    LteMacEnb* newMacEnb = dynamic_cast<LteMacEnb*>(
+        candMod->getSubmodule("lteNic")->getSubmodule("mac"));
+    if (newMacEnb == nullptr)
+    {
+        EV_WARN << NOW << " LtePhyUe::doHandover - candidate " << candidateMasterId_
+                << " MAC is not LteMacEnb, aborting" << endl;
+        binder_->removeUeHandoverTriggered(nodeId_);
+        return;
+    }
     LteCellInfo* newCellInfo = newMacEnb->getCellInfo();
-    cellInfo_->detachUser(nodeId_);
+    if (newCellInfo == nullptr) {
+        binder_->removeUeHandoverTriggered(nodeId_);
+        return;
+    }
+    if (cellInfo_ != nullptr)
+        cellInfo_->detachUser(nodeId_);
     newCellInfo->attachUser(nodeId_);
     cellInfo_ = newCellInfo;
 
     // update DL feedback generator
-    LteDlFeedbackGenerator* fbGen = check_and_cast<LteDlFeedbackGenerator*>(getParentModule()->getSubmodule("dlFbGen"));
+    LteDlFeedbackGenerator* fbGen = check_and_cast<LteDlFeedbackGenerator*>(
+        getParentModule()->getSubmodule("dlFbGen"));
     fbGen->handleHandover(masterId_);
 
     // collect stat
     emit(servingCell_, (long)masterId_);
 
-    EV << NOW << " LtePhyUe::doHandover - UE " << nodeId_ << " has completed handover to eNB " << masterId_ << "... " << endl;
+    EV << NOW << " LtePhyUe::doHandover - UE " << nodeId_
+       << " has completed handover to eNB " << masterId_ << "... " << endl;
     binder_->removeUeHandoverTriggered(nodeId_);
 
     // inform the UE's IP2lte module to forward held packets
-    IP2lte* ip2lte =  check_and_cast<IP2lte*>(getParentModule()->getSubmodule("ip2lte"));
+    IP2lte* ip2lte = check_and_cast<IP2lte*>(
+        getParentModule()->getSubmodule("ip2lte"));
     ip2lte->signalHandoverCompleteUe();
 
-    // inform the eNB's IP2lte module to forward data to the target eNB
-    cModule* masterMod = getSimulation()->getModule(binder_->getOmnetId(masterId_));
+    // inform the eNB's IP2lte module
+    cModule* masterMod = getSimulation()->getModule(
+        binder_->getOmnetId(masterId_));
     if (masterMod == nullptr)
     {
         binder_->removeUeHandoverTriggered(nodeId_);
         return;
     }
-    IP2lte* enbIp2lte =  check_and_cast<IP2lte*>(masterMod->getSubmodule("lteNic")->getSubmodule("ip2lte"));
-    enbIp2lte->signalHandoverCompleteTarget(nodeId_,oldMaster);
+    IP2lte* enbIp2lte = check_and_cast<IP2lte*>(
+        masterMod->getSubmodule("lteNic")->getSubmodule("ip2lte"));
+    enbIp2lte->signalHandoverCompleteTarget(nodeId_, oldMaster);
 }
 
 
@@ -441,6 +494,15 @@ void LtePhyUe::handleAirFrame(cMessage* msg)
     }
     // apply decider to received packet
     bool result = true;
+    // Guard: UserTxParams may be null for a stale UE / after handover.
+    if (lteInfo->getUserTxParams() == nullptr)
+    {
+        EV_WARN << "LtePhyUe::handleAirFrame - null UserTxParams, dropping frame"
+                << " for UE " << nodeId_ << endl;
+        delete frame;
+        delete lteInfo;
+        return;
+    }
     RemoteSet r = lteInfo->getUserTxParams()->readAntennaSet();
     if (r.size() > 1)
     {
@@ -581,9 +643,13 @@ void LtePhyUe::deleteOldBuffers(MacNodeId masterId)
 
     {
 
-        LteMacEnb *masterMac = check_and_cast<LteMacEnb *>(macMod);
+        LteMacEnb *masterMac = dynamic_cast<LteMacEnb *>(macMod);
 
-        masterMac->deleteQueues(nodeId_);
+        if (masterMac != nullptr)
+
+            masterMac->deleteQueues(nodeId_);
+
+        // else: masterId points to a non-eNB module, skip queue delete
 
     }
 

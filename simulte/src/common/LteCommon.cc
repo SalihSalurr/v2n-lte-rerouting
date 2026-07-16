@@ -547,7 +547,7 @@ LteCellInfo* getCellInfo(MacNodeId nodeId)
     MacNodeId id = temp->getNextHop(nodeId);
     OmnetId omnetid = temp->getOmnetId(id);
     omnetpp::cModule* module = getSimulation()->getModule(omnetid);
-    return module? check_and_cast<LteCellInfo*>(module->getSubmodule("cellInfo")) : nullptr;
+    return module? dynamic_cast<LteCellInfo*>(module->getSubmodule("cellInfo")) : nullptr;
 }
 
 cModule* getMacByMacNodeId(MacNodeId nodeId)

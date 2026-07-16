@@ -43,6 +43,7 @@ class VehicleApp : public cSimpleModule, public inet::UdpSocket::ICallback
 
     // ── CSV icin istatistikler (YENI) ───────────────────────
     bool   statsInitialized = false;
+    bool   statsWritten = false;   // CSV satiri bir kez yazilsin
     double departTime       = -1.0;
     std::string departEdge  = "";
     std::string lastEdge    = "";          // arrivalTime'da destEdge olarak kullanilacak

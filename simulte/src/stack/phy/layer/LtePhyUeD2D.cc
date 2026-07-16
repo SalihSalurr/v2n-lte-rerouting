@@ -236,12 +236,21 @@ void LtePhyUeD2D::triggerHandover()
 
 void LtePhyUeD2D::doHandover()
 {
-    // amc calls
+    // amc calls - with null guards (handover crash fix)
     LteAmc *oldAmc = getAmcModule(masterId_);
     LteAmc *newAmc = getAmcModule(candidateMasterId_);
-    assert(newAmc != nullptr);
-    oldAmc->detachUser(nodeId_, D2D);
-    newAmc->attachUser(nodeId_, D2D);
+
+    if (newAmc == nullptr)
+    {
+        EV_WARN << NOW << " LtePhyUeD2D::doHandover - cannot get AMC for candidate "
+                << candidateMasterId_ << ", skipping D2D detach/attach" << endl;
+    }
+    else
+    {
+        if (oldAmc != nullptr)
+            oldAmc->detachUser(nodeId_, D2D);
+        newAmc->attachUser(nodeId_, D2D);
+    }
 
     LtePhyUe::doHandover();
 
