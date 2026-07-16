@@ -234,30 +234,6 @@ free -h | grep Mem
 
 ---
 
-## Status
-
-Penetration30 currently runs past **t ≈ 2000 s (~28%)** with no crashes — all
-previously fatal points (t ≈ 745, 937, 987, 1233, 1288) are cleared by the Wave 3
-fixes. Both `tripinfo` and `vehicle_stats` are being written correctly with real
-arrival times.
-
-## Known Limitations
-
-- **Memory growth.** The no-delete workaround keeps every vehicle module in
-  memory for the whole run. With the LuST peak demand (~1 700 vehicles entering
-  per 5-minute bucket, sustained from t ≈ 1 800 to t ≈ 5 400, peak concurrency
-  ≈ 5 100), `opp_run` grows roughly linearly at ~3.5–5 GB per 1 000 simulated
-  seconds. A full 7 200 s run approaches the 32 GB limit of the current VM, and
-  higher penetration rates (more LTE stacks per vehicle) will exceed it.
-  Mitigations under consideration: shortening `sim-time-limit` to cover the peak
-  window only, or moving to a constrained-vCPU / high-memory VM
-  (e.g. `E8-2ads_v7`: 2 vCPU, 64 GB — fits the existing 4 vCPU quota).
-- **Dropped packets under stale grants.** The MAC `Empty buffer` fix skips SDUs
-  that a stale grant expected. These belong to vehicles that have already left
-  the network, so the effect on results is expected to be negligible, but it is a
-  deviation from stock SimuLTE behaviour.
-- **CSV arrival lag.** `vehicle_stats` arrival times are detected at the next
-  report interval; use `tripinfo` where exact timing matters.
 
 ## References
 
