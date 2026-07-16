@@ -11,19 +11,19 @@ This project simulates a realistic urban traffic scenario where a central server
 ### Simulation Stack
 
 ```
-┌─────────────┐     TraCI      ┌─────────────┐
-│    SUMO      │◄──────────────►│   Veins      │
-│  (Traffic)   │                │  (V2X Comm)  │
+┌─────────────┐     TraCI      ┌──────┴───────┐
+│    SUMO     │◄──────────────►│   Veins      │
+│  (Traffic)  │                │  (V2X Comm)  │
 └─────────────┘                └──────┬───────┘
                                       │
                                ┌──────┴───────┐
-                               │   SimuLTE     │
-                               │  (LTE Stack)  │
+                               │   SimuLTE    │
+                               │  (LTE Stack) │
                                └──────┬───────┘
                                       │
                                ┌──────┴───────┐
-                               │    INET       │
-                               │  (Network)    │
+                               │    INET      │
+                               │  (Network)   │
                                └──────────────┘
 ```
 
