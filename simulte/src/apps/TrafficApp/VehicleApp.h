@@ -44,6 +44,9 @@ class VehicleApp : public cSimpleModule, public inet::UdpSocket::ICallback
     // ── CSV icin istatistikler (YENI) ───────────────────────
     bool   statsInitialized = false;
     bool   statsWritten = false;   // CSV satiri bir kez yazilsin
+    bool   lteShutdown  = false;   // LTE stack bir kez kapatilsin
+    cMessage* deleteSelfMsg = nullptr;  // modul silme icin ertelenmis tetik
+    bool   deleteScheduled = false;     // silme bir kez planlansin
     double departTime       = -1.0;
     std::string departEdge  = "";
     std::string lastEdge    = "";          // arrivalTime'da destEdge olarak kullanilacak
@@ -74,5 +77,6 @@ class VehicleApp : public cSimpleModule, public inet::UdpSocket::ICallback
     // ── Yardimcilar ─────────────────────────────────────────
     double readRealTravelTime(const std::string& edgeId);
     void   tryInitStats();         // departTime/departEdge ilk gercek edge'de doldur
-    void   writeStatsRow();        // finish()'te CSV'ye yaz
+    void   writeStatsRow();        // arac cikisinda CSV'ye yaz
+    void   shutdownLteStack();     // arac cikisinda MAC tik'ini durdur + binder'dan dus
 };

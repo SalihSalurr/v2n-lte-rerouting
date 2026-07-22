@@ -1,5 +1,9 @@
 #include "VehicleApp.h"
+#include <cstring>
 #include "TrafficMsg_m.h"
+#include "common/LteCommon.h"
+#include "corenetwork/binder/LteBinder.h"
+#include "stack/mac/layer/LteMacBase.h"
 #include "inet/common/packet/Packet.h"
 #include "inet/networklayer/common/L3AddressResolver.h"
 #include <fstream>
@@ -153,9 +157,21 @@ void VehicleApp::initialize(int stage)
 }
 void VehicleApp::handleMessage(cMessage* msg)
 {
+    // Ertelenmis modul silme (deleteSelf self-message'i)
+    if (msg->isSelfMessage() && strcmp(msg->getName(), "deleteSelf") == 0) {
+        cModule* host = getParentModule();   // car[i]
+        deleteSelfMsg = nullptr;              // finish tekrar silmeye calismasin
+        delete msg;
+        if (host != nullptr) {
+            host->callFinish();
+            host->deleteModule();             // tum LTE stack iskeleti RAM'den silinir
+        }
+        return;                               // bu noktadan sonra 'this' yok
+    }
     if (msg == reportTimer) {
         sendReport();
-        scheduleAt(simTime() + reportInterval, reportTimer);
+        if (!deleteScheduled)
+            scheduleAt(simTime() + reportInterval, reportTimer);
         return;
     }
     if (socket.belongsToSocket(msg)) {
@@ -199,6 +215,7 @@ void VehicleApp::sendReport()
             // vehicle just left SUMO: record its stats NOW with the real
             // arrival time (finish() will not fire due to no-delete workaround)
             writeStatsRow();
+            shutdownLteStack();   // stop the MAC TTI loop + free AMC/scheduler state
             isEquipped = false;   // stop all future reports
             return;               // silently skip, never touch TraCI
         }
@@ -334,6 +351,56 @@ void VehicleApp::socketDataArrived(inet::UdpSocket* sock, inet::Packet* packet)
     }
     delete packet;
 }
+// ═════════════════════════════════════════════════════════════
+//  shutdownLteStack() — arac SUMO'dan cikinca cagrilir.
+//  Modul SILINMEZ (stale-nodeId crash'lerini onlemek icin), ama:
+//    1) MAC'in periyodik TTI tik'i durdurulur  -> olu UE artik saniyede
+//       1000 kez MAC ana dongusunu calistirmaz (asil yavaslama sebebi)
+//    2) binder->unregisterNode() -> her eNB'nin AMC'sindeki band-basina
+//       feedback gecmisi ve scheduler kuyruklari serbest kalir (RAM)
+//  Arac zaten unregisterNic() ile kanaldan kopmus durumda.
+// ═════════════════════════════════════════════════════════════
+void VehicleApp::shutdownLteStack()
+{
+    if (lteShutdown) return;
+    lteShutdown = true;
+
+    cModule* parent = getParentModule();
+    if (parent == nullptr) return;
+    cModule* nic = parent->getSubmodule("lteNic");
+    if (nic == nullptr) return;
+    LteMacBase* mac = dynamic_cast<LteMacBase*>(nic->getSubmodule("mac"));
+    if (mac == nullptr) return;
+
+    MacNodeId nid = mac->getMacNodeId();
+
+    // 1) LTE kaydini dusur (AMC detach + scheduler queue temizligi)
+    if (nid != 0)
+    {
+        LteBinder* b = getBinder();
+        if (b != nullptr)
+            b->unregisterNode(nid);
+    }
+
+    // 2) periyodik MAC dongusunu durdur
+    mac->stopTtiTick();
+
+    EV_INFO << "VehicleApp: LTE stack shut down for departed vehicle, nodeId="
+            << nid << endl;
+
+    // 3) modulu GERCEKTEN sil (present-messages/RAM birikimini bitirir).
+    //    Kendi event dongumuzde oldugumuz icin hemen silemeyiz -> bir sonraki
+    //    event'e self-message ile ertele. Wave 3 guard'lari stale-nodeId
+    //    erisimlerini zaten koruyor; unregisterNode ile binder'dan da dustuk.
+    if (!deleteScheduled) {
+        deleteScheduled = true;
+        if (reportTimer && reportTimer->isScheduled())
+            cancelEvent(reportTimer);
+        deleteSelfMsg = new cMessage("deleteSelf");
+        scheduleAt(simTime(), deleteSelfMsg);   // bu event biter bitmez
+    }
+}
+
 void VehicleApp::writeStatsRow()
 {
     if (!statsInitialized) return;
@@ -367,5 +434,9 @@ void VehicleApp::finish()
 {
     writeStatsRow();
     cancelAndDelete(reportTimer);
+    if (deleteSelfMsg) {
+        cancelAndDelete(deleteSelfMsg);
+        deleteSelfMsg = nullptr;
+    }
     socket.close();
 }
