@@ -31,7 +31,7 @@ This project simulates a realistic urban traffic scenario where a central server
 
 Originally developed on the [Veins virtual machine (Debian-based)](https://veins.car2x.org), which provides a pre-configured environment with OMNeT++, SUMO, and Veins. SimuLTE and INET are added on top.
 
-Long simulation runs are executed on an Azure VM (Ubuntu 24.04, 4 vCPU, 32 GB RAM) with OMNeT++ 5.7, INET 4, Veins, `veins_inet`, and SimuLTE built from source.
+Long simulation runs are executed on Azure VMs (Ubuntu 24.04) with OMNeT++ 5.7, INET 4, Veins, `veins_inet`, and SimuLTE built from source. With the Wave 5 `deleteModule` fix, RAM usage stays flat regardless of vehicle churn; a 4 vCPU / 16 GB VM is sufficient for all penetration rates including Pen100.
 
 ## Prerequisites
 
@@ -48,7 +48,7 @@ Long simulation runs are executed on an Azure VM (Ubuntu 24.04, 4 vCPU, 32 GB RA
 ### Application Layer (Created)
 
 - **`simulte/src/apps/TrafficApp/TrafficServer.cc/.h`** — Central rerouting server: receives vehicle reports, computes congestion, runs Dijkstra, sends reroute commands
-- **`simulte/src/apps/TrafficApp/VehicleApp.cc/.h`** — Vehicle application: reports edge ID, speed, travel time to server via UDP/LTE, applies reroute commands, and writes per-vehicle CSV statistics
+- **`simulte/src/apps/TrafficApp/VehicleApp.cc/.h`** — Vehicle application: reports edge ID, speed, travel time to server via UDP/LTE, applies reroute commands, writes per-vehicle CSV statistics, and performs full LTE stack teardown + module deletion on vehicle departure
 - **`simulte/src/apps/TrafficApp/TrafficMsg.msg`** — Message definitions (VehicleReportMsg, ServerRouteMsg)
 - **`simulte/src/apps/TrafficApp/TrafficMsgSerializer.cc/.h`** — Custom serializer for LTE stack compatibility
 - **`simulte/src/apps/VehicleReRoute/VehicleReRouteApp.cc/.h`** — Per-vehicle rerouting client (edge check loop, one reroute per vehicle)
@@ -65,7 +65,7 @@ Long simulation runs are executed on an Azure VM (Ubuntu 24.04, 4 vCPU, 32 GB RA
 
 ## SimuLTE Crash Fixes
 
-SimuLTE was not designed for the vehicle churn that Veins produces: vehicles are added and removed continuously, and `MacNodeId` references are scattered across the AMC, schedulers, binder, PHY, and DAS filter. The fixes below fall into three waves.
+SimuLTE was not designed for the vehicle churn that Veins produces: vehicles are added and removed continuously, and `MacNodeId` references are scattered across the AMC, schedulers, binder, PHY, and DAS filter. The fixes below fall into five waves.
 
 ### Wave 1 — Startup / Null-Pointer Fixes
 
@@ -98,7 +98,7 @@ When a vehicle leaves the SUMO map, deleting its OMNeT++ module leaves stale `Ma
   `deleteManagedModule()` no longer calls `callFinish()` / `deleteModule()`.
   Vehicle modules are disconnected from the channel but kept alive in OMNeT++,
   so the LTE stack never receives a "vehicle gone" event.
-  **Trade-off:** memory grows with total vehicle churn (see *Known Limitations*).
+  **Trade-off:** memory grew with total vehicle churn — resolved in Wave 5.
 
 - **`simulte/src/corenetwork/binder/LteBinder.cc`** — `unregisterNode()`
   proactively detaches the UE from every eNB's AMC (all directions) and clears
@@ -173,6 +173,67 @@ buffer; after thousands of these, the process died with
   (and the reroute timer stops rescheduling) without ever touching TraCI.
   This also removed a large per-step overhead: run speed improved several-fold.
 
+### Wave 4 — LTE Stack Shutdown (partial resource release)
+
+Root cause identified: `LteMacBase::handleMessage()` reschedules `ttiTick_`
+every TTI (1 ms) indefinitely; the only cancellation point was `deleteModule()`,
+which was disabled in Wave 3. Every departed vehicle's MAC therefore continued
+executing the full MAC cycle ~1000 times per simulated second, consuming both CPU
+and RAM.
+
+- **`simulte/src/stack/mac/layer/LteMacBase.h/.cc`** — added public
+  `stopTtiTick()` method that cancels the self-scheduled `ttiTick_` message.
+- **`simulte/src/apps/TrafficApp/VehicleApp.cc/.h`** — added
+  `shutdownLteStack()`, called when the vehicle is detected as gone from SUMO.
+  Performs `binder->unregisterNode(nodeId)` (detaches from every eNB's AMC and
+  scheduler queues) followed by `mac->stopTtiTick()` (halts the periodic MAC
+  cycle).
+
+**Result:** measurable improvement but insufficient — the module's OMNeT++
+skeleton (submodule tree, gates, parameter objects) still carried per-event cost
+even after TTI and AMC resources were released. This motivated Wave 5.
+
+### Wave 5 — Safe Module Deletion (full resource release)
+
+The definitive fix: actually delete the vehicle's host module (`car[i]`) once the
+LTE stack is shut down, eliminating all residual memory and event overhead.
+
+**Challenge:** a module cannot delete itself during its own event processing —
+doing so corrupts the OMNeT++ scheduler. The solution uses a deferred
+self-message pattern:
+
+- **`simulte/src/apps/TrafficApp/VehicleApp.h`** — added `deleteSelfMsg`
+  (cMessage pointer) and `deleteScheduled` flag.
+- **`simulte/src/apps/TrafficApp/VehicleApp.cc`** — `shutdownLteStack()` now
+  schedules a `"deleteSelf"` self-message at `simTime()` after stopping the MAC
+  TTI and unregistering from the binder. The `reportTimer` is cancelled so it
+  does not fire on a half-torn-down module.
+- **`simulte/src/apps/TrafficApp/VehicleApp.cc`** — `handleMessage()` catches
+  the `"deleteSelf"` message (identified by `isSelfMessage()` + name comparison
+  to avoid INET `check_and_cast` conflicts), then calls
+  `getParentModule()->callFinish()` followed by `deleteModule()` on the host
+  module. After `deleteModule()` returns, `this` is destroyed — no member access
+  follows.
+- **`simulte/src/apps/TrafficApp/VehicleApp.cc`** — `finish()` / destructor
+  performs `cancelAndDelete(deleteSelfMsg)` cleanup for modules that are still
+  alive at simulation end.
+
+**Safety:** Wave 3 guards protect every code path that could reach a stale
+`MacNodeId` after deletion. `unregisterNode()` detaches the UE from all eNB AMCs
+and scheduler queues *before* the module is destroyed, so no dangling reference
+remains. The `"deleteSelf"` message is identified by name (`strcmp`) rather than
+pointer comparison, avoiding INET socket handler `check_and_cast` conflicts.
+
+**Result:**
+
+| Metric | Before (Wave 4 only) | After (Wave 5) |
+|---|---|---|
+| Present messages at t=5400 | ~27 million | ~2 million |
+| RAM at t=5400 (Pen60) | 160 GB | ~10 GB |
+| RAM growth | Unbounded (OOM at t≈6000) | Flat (bounded) |
+
+With Wave 5, penetration rates up to Pen100 can run to completion on a 16 GB VM.
+
 ### Data Collection Fix
 
 - **`simulte/src/apps/TrafficApp/VehicleApp.cc/.h`** — CSV rows used to be written
@@ -189,7 +250,7 @@ Each run produces two complementary datasets in `simulte/simulations/cars/result
 
 | File | Producer | Contents |
 |---|---|---|
-| `tripinfo_<Scenario>.xml` | SUMO | Ground-truth per-trip data: `depart`, `arrival`, `duration`, `routeLength`, `waitingTime`, `timeLoss`. Unaffected by the OMNeT++ no-delete workaround. |
+| `tripinfo_<Scenario>.xml` | SUMO | Ground-truth per-trip data: `depart`, `arrival`, `duration`, `routeLength`, `waitingTime`, `timeLoss`. Unaffected by the OMNeT++ module lifecycle. |
 | `vehicle_stats_<Scenario>.csv` | `VehicleApp` | LTE-side metrics: `vehicleId, sumoId, isEquipped, departTime, arrivalTime, duration, routesReceived, routesApplied, routesFallback, laneChanges, departEdge, destEdge` |
 
 The two are joined on the SUMO vehicle id. **Use `tripinfo` for travel-time and
@@ -211,6 +272,10 @@ sed -i 's|tripinfo_Penetration30.xml|tripinfo_Penetration45.xml|' lust.sumo.cfg
 source ~/src/omnetpp-5.7/setenv
 export LD_LIBRARY_PATH=$HOME/src/omnetpp-5.7/lib:$HOME/src/inet4/src:$HOME/src/veins/src:$HOME/src/veins_inet/src:$HOME/src/simulte/src
 
+# Optional: use jemalloc for reduced memory fragmentation and improved speed
+export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
+export MALLOC_CONF="background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:5000"
+
 # start the TraCI launcher (one instance only — duplicates corrupt the run)
 cd ~/src/simulte/simulations/cars
 nohup python3 ~/src/veins/sumo-launchd.py -vv -c sumo > /tmp/launchd.log 2>&1 &
@@ -220,20 +285,34 @@ tmux new -s sim
 opp_run -l ../../src/lte -l ../../../veins/src/veins \
         -l ../../../veins_inet/src/src -l ../../../inet4/src/INET \
         -n "../../src:../../simulations:../../../inet4/src:../../../veins/src/veins:../../../veins_inet/src/veins_inet" \
-        -u Cmdenv -c Penetration30 omnetpp.ini
+        -u Cmdenv -c Penetration30 omnetpp.ini 2>&1 | tee /tmp/sim.log
 # detach with Ctrl+B then D
 ```
 
 Monitoring:
 
 ```bash
-tmux capture-pane -t sim -p | grep "t=" | tail -1
-ps aux | grep opp_run | grep -v grep | awk '{print "RAM: "$6/1024/1024" GB"}'
+# Simulation progress + RAM
+tmux capture-pane -t sim -p | tail -5
 free -h | grep Mem
+
+# Check for errors
+grep -iE 'error|segfault|abort' /tmp/sim.log | head
+
+# Verify jemalloc is loaded
+PID=$(pgrep -f opp_run); grep -q jemalloc /proc/$PID/maps && echo "jemalloc ACTIVE"
 ```
 
----
+### Performance Tips
 
+- **jemalloc** (`LD_PRELOAD`): reduces heap fragmentation from millions of
+  message alloc/free cycles; ~10–25 % speed improvement observed.
+- **Release build**: ensure `libsrc.so` (not `libsrc_dbg.so`) is on
+  `LD_LIBRARY_PATH`; debug builds are 3–5× slower.
+- **CPU governor**: `echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor`
+  prevents throttling on cloud VMs.
+
+---
 
 ## References
 
